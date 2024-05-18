@@ -41,9 +41,9 @@
 
 
 # ----------------deepspeed_train-------------------------------
-deepspeed --num_gpus=1 ./train_sft.py \
+deepspeed --num_gpus=2 ./train_sft.py \
     --deepspeed  ./deepspeed_zero2_config.json \
-    --model_name_or_path lmsys/vicuna-7b-v1.5 \
+    --model_name_or_path meta-llama/Meta-Llama-3-8B-Instruct \
     --use_deepspeed true \
     --weight_decay 1e-3 \
     --warmup_steps 1000 \
