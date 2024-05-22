@@ -18,3 +18,14 @@ pip install peft bitsandbytes sentencepiece deepspeed datasets protobuf accelera
 sh train_zero2.sh
 
 # 如果不行试试不指定版本，能装最新装最新
+
+# 调参
+# deepspeed配置简单介绍https://zhuanlan.zhihu.com/p/645627795,https://zhuanlan.zhihu.com/p/675360966 阶段越高并行程度越大
+# 速度方面（左边比右边快）
+# zero 0 (DDP) > zero 1 > zero 2 > zero 2 + offload > zero 3 > zero 3 + offload
+# GPU 内存使用情况（右侧的 GPU 内存效率高于左侧）
+# zero 0 (DDP) < zero 1 < zero 2 < zero 2 + offload < zero 3 < zero 3 + offload
+
+# huggingface transformers的trainer 调参https://zhuanlan.zhihu.com/p/363670628
+# deepspeed一些参数和trainer_zero2.sh一些重合，这种情况下在zero配置文件设置auto，在train_zero2.sh调参
+# 如果有同一参数如果在train_zero2.sh的参数和zero配置的是不同配置会报错
