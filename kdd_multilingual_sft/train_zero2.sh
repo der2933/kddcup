@@ -41,9 +41,9 @@
 
 
 # ----------------deepspeed_train-------------------------------
-deepspeed --num_gpus=2 ./train_sft.py \
+deepspeed --include localhost:1,2 ./train_sft.py \
     --deepspeed  ./deepspeed_zero2_config.json \
-    --model_name_or_path meta-llama/Meta-Llama-3-8B-Instruct \
+    --model_name_or_path ../../../model/meta-llama-3-8B-Instruct \
     --use_deepspeed true \
     --weight_decay 1e-3 \
     --warmup_steps 1000 \
@@ -52,9 +52,9 @@ deepspeed --num_gpus=2 ./train_sft.py \
     --train_data_path ./data/ \
     --bf16 false \
     --fp16 true \
-    --output_dir ./output/ \
+    --output_dir ./output/24-5-23/ \
     --num_train_epochs 2 \
-    --per_device_train_batch_size 1 \
+    --per_device_train_batch_size 2  \
     --gradient_accumulation_steps 64 \
     --evaluation_strategy no \
     --save_strategy epoch \
@@ -62,8 +62,12 @@ deepspeed --num_gpus=2 ./train_sft.py \
     --logging_steps 10 \
     --source_length 4096 \
     --neftune_noise_alpha 4 \
-    --use_flashattn2 true \
-    --target_length 512 
+    --use_flashattn2 false \
+    --use_lora true \
+    --lora_r 16 \
+    --lora_alpha 32 \
+    --lora_dropout 0.05 \
+    --target_length 128
 
 
 

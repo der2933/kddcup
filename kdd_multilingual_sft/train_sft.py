@@ -126,7 +126,7 @@ OUTPUT_FORMAT = "{output}"
 
 
 
-def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer) -> Dict:
+def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer, source_length: int) -> Dict:
     """Tokenize a list of strings."""
 
     tokenized_list = [
@@ -134,7 +134,7 @@ def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedToken
             text,
             return_tensors="pt",
             padding="longest",
-            max_length=2048,
+            max_length=source_length,
             truncation=True,
         )
         for text in strings
@@ -157,19 +157,21 @@ def preprocess(
         sources: Sequence[str],
         targets: Sequence[str],
         tokenizer: transformers.PreTrainedTokenizer,
+        data_args: DataArguments,
         mode: str
 ) -> Dict:
     """Preprocess the data by tokenizing."""
+
     if mode=='train':
         examples = [s + t + tokenizer.eos_token for s, t in zip(sources, targets)]
         examples_tokenized, sources_tokenized = [_tokenize_fn(
-            strings, tokenizer) for strings in (examples, sources)]
+            strings, tokenizer, data_args.source_length) for strings in (examples, sources)]
         input_ids = examples_tokenized["input_ids"]
         labels = copy.deepcopy(input_ids)
         for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):
             label[:source_len] = IGNORE_INDEX
     else:
-        prompt_tokenied, labels_tokenized = [_tokenize_fn(strings, tokenizer) for strings in (sources, targets)]
+        prompt_tokenied, labels_tokenized = [_tokenize_fn(strings, tokenizer, data_args.source_length) for strings in (sources, targets)]
         input_ids , labels = prompt_tokenied["input_ids"], labels_tokenized["input_ids"]
         
     return dict(input_ids=input_ids, labels=labels)
@@ -198,7 +200,7 @@ def make_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: str, da
             prompt_no_input.format_map({'instruction': ins_data[i]})
                 for i in range(len_)
         ]
-        sources = [i[-data_args.source_length:] if len(i)>data_args.source_length else i for i in sources]
+        # sources = [i[-data_args.source_length:] if len(i)>data_args.source_length else i for i in sources]
 
         if mode=='train':
             targets = [
@@ -207,7 +209,7 @@ def make_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: str, da
         else:
             targets = output
 
-        return preprocess(sources, targets, tokenizer, mode)
+        return preprocess(sources, targets, tokenizer, data_args, mode)
 
     generate_sources_targets_p = partial(
         generate_sources_targets, tokenizer=tokenizer, mode=mode)
@@ -259,6 +261,7 @@ def load_model_and_tokenizer(model_args: ModelArguments, training_args: Training
             target_modules=TARGET_MODULES,
             lora_dropout=model_args.lora_dropout,
             # modules_to_save=['embed_tokens'],
+            modules_to_save=['embed_tokens','lm_head'],
             bias="none",
             task_type="CAUSAL_LM"
         )
@@ -283,6 +286,13 @@ def main():
     training_args.gradient_checkpointing=True
     model, tokenizer = load_model_and_tokenizer(model_args, training_args, data_args)
 
+    # check and set padding token
+    if tokenizer.pad_token is None:
+        # use eos_token as pad_token
+        tokenizer.pad_token = tokenizer.eos_token
+        # or add a new pad_token
+        # tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+
     with training_args.main_process_first(desc="loading and tokenization"):
         if training_args.do_train:
             train_dataset = make_dataset(
@@ -297,7 +307,6 @@ def main():
                 tokenizer=tokenizer, data_path=data_args.eval_data_path, data_args=data_args, mode='eval')
             logger.info("example train dataset[0] formated:")
             logger.info(tokenizer.decode(eval_dataset[0]['input_ids'], skip_special_tokens=False))
-
 
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer,
                                            model=model,
