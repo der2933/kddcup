@@ -41,7 +41,7 @@
 
 
 # ----------------deepspeed_train-------------------------------
-deepspeed --include localhost:1,2 ./train_sft.py \
+deepspeed --include localhost:0,1,2,3 ./train_sft.py \
     --deepspeed  ./deepspeed_zero2_config.json \
     --model_name_or_path ../../../model/meta-llama-3-8B-Instruct \
     --use_deepspeed true \
@@ -52,8 +52,8 @@ deepspeed --include localhost:1,2 ./train_sft.py \
     --train_data_path ./data/ \
     --bf16 false \
     --fp16 true \
-    --output_dir ./output/24-5-23/ \
-    --num_train_epochs 2 \
+    --output_dir ./output/24-6-1/ \
+    --num_train_epochs 1 \
     --per_device_train_batch_size 2  \
     --gradient_accumulation_steps 64 \
     --evaluation_strategy no \
