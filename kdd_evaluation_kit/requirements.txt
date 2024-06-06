@@ -1,0 +1,11 @@
+torch
+transformers
+sentencepiece
+protobuf
+pandas
+accelerate
+sentence-transformers
+FlagEmbedding
+vllm>=0.4.2
+loguru
+faiss-gpu

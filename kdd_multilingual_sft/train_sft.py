@@ -53,12 +53,6 @@ class TrainingArguments(transformers.TrainingArguments):
     use_deepspeed: bool = field(default=False)
 
 
-quantization_config= BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_compute_dtype=torch.float16
-)
 
 
 def get_all_datapath(dir_name: str) -> List[str]:
@@ -93,57 +87,28 @@ def load_dataset_from_path(data_path: Optional[str] = None,
 
 
 IGNORE_INDEX = -100
-# gemma prompt template
-# PROMPT_DICT = {
-#     "prompt_input": (
-#         "<start_of_turn>user\nYou are a helpful online shopping assistant."
-#         "Please answer the following question about online shopping without other words and follow the given instructions .\n"
-#         "Instruction:\n{instruction}\nInput:\n{input}\nResponse: <end_of_turn>\n<start_of_turn>model\n"
-#     ),
-#     "prompt_no_input": (
-#         "<start_of_turn>user\nBelow is an instruction that describes a task. "
-#         "Please answer the following question about online shopping without other words and follow the given instructions .\n"
-#         "Instruction:\n{instruction}\nResponse: <end_of_turn>\n<start_of_turn>model\n"
-#     ),
-# }
-# OUTPUT_FORMAT = "{output}<end_of_turn>"
-
-# vicuna template
-PROMPT_DICT = {
-    "prompt_input": (
-        "[INST] You are a helpful online shopping assistant."
-        "Please answer the following question about online shopping without other words and follow the given instructions .\n"
-        "### Instruction:\n{instruction}\nInput:\n{input}\nResponse:[/INST]"
-    ),
-    "prompt_no_input": (
-        "[INST] You are a helpful online shopping assistant.  "
-        "Please answer the following question about online shopping without other words and follow the given instructions .\n"
-        "Instruction:\n{instruction}\nResponse:[/INST]"
-    ),
-}
-OUTPUT_FORMAT = "{output}"
-
-
+SYSTEM_PROMPT = "You are a helpful and multilingual online shopping assistant. You can understand and respond to user queries in English, German, Italian, French, Japanese, Spanish, Chinese. You are knowledgeable about various products. NOTE:ONLY OUTPUT THE ANSWER!!\n\n"
 
 
 def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedTokenizer, source_length: int) -> Dict:
     """Tokenize a list of strings."""
 
     tokenized_list = [
-        tokenizer(
+        tokenizer.encode(
             text,
             return_tensors="pt",
             padding="longest",
             max_length=source_length,
+            add_special_tokens=False,
             truncation=True,
         )
         for text in strings
     ]
-    input_ids = labels = [tokenized.input_ids[0]
+    input_ids = labels = [tokenized[0]
                           for tokenized in tokenized_list]
     ne_pad_token_id = IGNORE_INDEX if tokenizer.pad_token_id is None else tokenizer.pad_token_id
     input_ids_lens = labels_lens = [
-        tokenized.input_ids.ne(ne_pad_token_id).sum().item() for tokenized in tokenized_list
+        tokenized.ne(ne_pad_token_id).sum().item() for tokenized in tokenized_list
     ]
     return dict(
         input_ids=input_ids,
@@ -184,7 +149,6 @@ def make_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: str, da
         data_path=data_path,
     )
     logging.warning("Formatting inputs...")
-    prompt_input, prompt_no_input = PROMPT_DICT["prompt_input"], PROMPT_DICT["prompt_no_input"]
 
     def generate_sources_targets(examples: Dict, tokenizer: transformers.PreTrainedTokenizer, mode: str):
         ins_data = examples['instruction']
@@ -195,21 +159,26 @@ def make_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: str, da
         output = examples['output']
         len_ = len(ins_data)
         sources = [
-            prompt_input.format_map({'instruction': ins_data[i], 'input': input_data[i]})
+            ins_data[i]+"\n"+input_data[i]
             if input_data[i] != "" else 
-            prompt_no_input.format_map({'instruction': ins_data[i]})
+            ins_data[i]
                 for i in range(len_)
         ]
+
         # sources = [i[-data_args.source_length:] if len(i)>data_args.source_length else i for i in sources]
-
-        if mode=='train':
-            targets = [
-                OUTPUT_FORMAT.format_map({'output':example}) for example in output
-            ]
-        else:
-            targets = output
-
-        return preprocess(sources, targets, tokenizer, data_args, mode)
+        
+        # using model chat template to format model input, not tokenize in this step
+        sources = [
+            tokenizer.apply_chat_template(
+                conversation=[{"role":"system","content":SYSTEM_PROMPT}, {"role":"user","content":i}],
+                add_generation_prompt=True,
+                tokenize=False,
+                truncation=True,
+                max_length=data_args.source_length
+            ) 
+            for i in sources
+        ]
+        return preprocess(sources, output, tokenizer, data_args, mode)
 
     generate_sources_targets_p = partial(
         generate_sources_targets, tokenizer=tokenizer, mode=mode)
@@ -226,26 +195,24 @@ def make_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: str, da
 
 
 def load_model_and_tokenizer(model_args: ModelArguments, training_args: TrainingArguments, data_args: DataArguments) -> tuple:
-
-    if training_args.use_deepspeed:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=training_args.cache_dir,
-            torch_dtype='auto',
-            trust_remote_code=True,
-            attn_implementation= "flash_attention_2" if model_args.use_flashattn2 else None,
-            quantization_config=quantization_config if model_args.use_qlora4bit else None
+    load_model_args = dict(pretrained_model_name_or_path=model_args.model_name_or_path, 
+                           cache_dir=training_args.cache_dir,
+                           torch_dtype='auto',
+                           trust_remote_code=True)
+    if model_args.use_flashattn2:
+        load_model_args["attn_implementation"] = "flash_attention_2"
+    if not training_args.use_deepspeed:
+        load_model_args["device_map"]='auto'
+    if model_args.use_qlora4bit:
+        quantization_config= BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.float16
         )
-    else:
-        model = AutoModelForCausalLM.from_pretrained(
-            model_args.model_name_or_path,
-            cache_dir=training_args.cache_dir,
-            device_map='auto',
-            torch_dtype='auto',
-            trust_remote_code=True,
-            attn_implementation= "flash_attention_2" if model_args.use_flashattn2 else None,
-            quantization_config=quantization_config if model_args.use_qlora4bit else None
-        )
+        load_model_args["quantization_config"]=quantization_config
+        
+    model = AutoModelForCausalLM.from_pretrained(**load_model_args)
 
     if model_args.use_lora:
         if model_args.use_qlora4bit:
@@ -276,6 +243,7 @@ def load_model_and_tokenizer(model_args: ModelArguments, training_args: Training
 
     logger.info(model)
     tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
+    tokenizer.truncation_side = "left" # truncation left ?
     model.config.use_cache = False
     return model, tokenizer
 
