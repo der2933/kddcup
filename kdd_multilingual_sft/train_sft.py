@@ -213,21 +213,24 @@ def load_model_and_tokenizer(model_args: ModelArguments, training_args: Training
         load_model_args["quantization_config"]=quantization_config
         
     model = AutoModelForCausalLM.from_pretrained(**load_model_args)
-
+    model.enable_input_require_grads()
     if model_args.use_lora:
         if model_args.use_qlora4bit:
             model = prepare_model_for_kbit_training(model)
 
         logging.warning("Loading model to Lora")
 
-        TARGET_MODULES = ["gate_proj", "up_proj", "down_proj"]
+        # for llama3 or qwen2
+        TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj","gate_proj", "up_proj", "down_proj"]
+        # for glm 4
+        # TARGET_MODULES = ["query_key_value","dense_h_to_4h","dense_4h_to_h"]
+
 
         config = LoraConfig(
             r=model_args.lora_r,
             lora_alpha=model_args.lora_alpha,
             target_modules=TARGET_MODULES,
             lora_dropout=model_args.lora_dropout,
-            # modules_to_save=['embed_tokens'],
             modules_to_save=['embed_tokens','lm_head'],
             bias="none",
             task_type="CAUSAL_LM"
@@ -239,10 +242,11 @@ def load_model_and_tokenizer(model_args: ModelArguments, training_args: Training
         # for name, para in model.named_parameters():
         #     if para.requires_grad==True:
         #         logger.info(name+'----requires grad')
+        model.print_trainable_parameters()
         
 
     logger.info(model)
-    tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path,trust_remote_code=True)
     tokenizer.truncation_side = "left" # truncation left ?
     model.config.use_cache = False
     return model, tokenizer

@@ -41,7 +41,7 @@
 
 
 # ----------------deepspeed_train-------------------------------
-deepspeed --include localhost:0,1,2,3 ./train_sft.py \
+CUDA_VISIBLE_DEVICES=0,1,3,4 deepspeed --num_gpus 4 ./train_sft.py \
     --deepspeed  ./deepspeed_zero2_config.json \
     --model_name_or_path ../../../model/meta-llama-3-8B-Instruct \
     --use_deepspeed true \
