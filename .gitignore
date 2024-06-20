@@ -1,2 +1,4 @@
 **/output/**
 **/cache_data/**
+**/models/**
+**/torch-extensions/**

@@ -5,6 +5,7 @@ import logging
 import os
 import numpy as np
 import torch
+from torch import nn
 import transformers
 
 # from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -15,8 +16,9 @@ from datasets import load_dataset
 from functools import partial
 from torch.utils.data import Dataset
 from tqdm.auto import tqdm
-from transformers import DataCollatorForSeq2Seq, Trainer
-from typing import Dict, Optional, Sequence, List
+from transformers import DataCollatorForSeq2Seq, Trainer as _Trainer, Seq2SeqTrainer as _Seq2SeqTrainer
+
+from typing import Any, Dict, Optional, Sequence, List
 from peft import LoraConfig, LoftQConfig, get_peft_model, prepare_model_for_kbit_training, PeftModel, PeftConfig, PeftMixedModel
 
 logger = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ class DataArguments:
     target_length: int = field(default=128)
 
 @dataclass
-class TrainingArguments(transformers.TrainingArguments):
+class TrainingArguments(transformers.Seq2SeqTrainingArguments):
     cache_dir: Optional[str] = field(default=None)
     optim: str = field(default="adamw_torch")
     model_max_length: int = field(
@@ -53,6 +55,46 @@ class TrainingArguments(transformers.TrainingArguments):
     use_deepspeed: bool = field(default=False)
 
 
+# class Trainer(_Seq2SeqTrainer):
+#     def training_step(self, model: nn.Module, inputs: dict[str, Any]) -> torch.Tensor:
+
+#         model.train()
+#         inputs = self._prepare_inputs(inputs)
+#         with self.compute_loss_context_manager():
+#             loss = self.compute_loss(model, inputs)
+        
+#         if self.args.n_gpu > 1:
+#             loss = loss.mean()
+#         self.accelerator.backward(loss)
+#         detached_loss = loss.detach() / self.args.gradient_accumulation_steps
+#         del inputs
+#         torch.cuda.empty_cache()
+#         return detached_loss
+#     def prediction_step(
+#             self,
+#             model: nn.Module,
+#             inputs: dict[str, Any],
+#             prediction_loss_only: bool,
+#             ignore_keys=None,
+#             **gen_kwargs,
+#     ) -> tuple[Optional[float], Optional[torch.Tensor], Optional[torch.Tensor]]:
+
+#         with torch.no_grad():  # Ensure no gradient computation
+#             if self.args.predict_with_generate:
+#                 output_ids = inputs.pop('output_ids')
+#             input_ids = inputs['input_ids']
+
+#             loss, generated_tokens, labels = super().prediction_step(
+#                 model, inputs, prediction_loss_only, ignore_keys, **gen_kwargs
+#             )
+
+#             generated_tokens = generated_tokens[:, input_ids.size()[1]:]
+#             labels = output_ids
+
+#             del inputs, input_ids, output_ids
+#             torch.cuda.empty_cache()
+
+#         return loss, generated_tokens, labels
 
 
 def get_all_datapath(dir_name: str) -> List[str]:
@@ -197,8 +239,12 @@ def make_dataset(tokenizer: transformers.PreTrainedTokenizer, data_path: str, da
 def load_model_and_tokenizer(model_args: ModelArguments, training_args: TrainingArguments, data_args: DataArguments) -> tuple:
     load_model_args = dict(pretrained_model_name_or_path=model_args.model_name_or_path, 
                            cache_dir=training_args.cache_dir,
-                           torch_dtype='auto',
-                           trust_remote_code=True)
+                           torch_dtype=torch.half,
+                           trust_remote_code=True,
+                           empty_init=False,
+                           use_cache=False
+                           )
+
     if model_args.use_flashattn2:
         load_model_args["attn_implementation"] = "flash_attention_2"
     if not training_args.use_deepspeed:
@@ -213,6 +259,7 @@ def load_model_and_tokenizer(model_args: ModelArguments, training_args: Training
         load_model_args["quantization_config"]=quantization_config
         
     model = AutoModelForCausalLM.from_pretrained(**load_model_args)
+    model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
     if model_args.use_lora:
         if model_args.use_qlora4bit:
@@ -285,7 +332,7 @@ def main():
                                            padding=True,
                                            label_pad_token_id=IGNORE_INDEX)
 
-    trainer = Trainer(model=model,
+    trainer = _Trainer(model=model,
                       tokenizer=tokenizer,
                       args=training_args,
                       train_dataset=train_dataset if training_args.do_train else None,

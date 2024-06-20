@@ -15,9 +15,23 @@ pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.5.
 pip install peft bitsandbytes sentencepiece deepspeed datasets protobuf accelerate
 
 
-sh train_zero2.sh
+TORCH_EXTENSIONS_DIR=./torch-extensions sh train_zero2.sh
 
 # 如果不行试试不指定版本，能装最新装最新
+
+## deepspeed bug
+# pip install deepspeed
+# ninja 问题 https://blog.csdn.net/qq_21768483/article/details/129853752
+# /include/python3.8/Python.h:44:10: fatal error: crypt.h: No such file or directory   sudo cp /usr/include/crypt.h /home/{username}/anaconda3/envs/{venv name}/include/python3.8/
+# error: 'timespec_get' has not been declared in '::'  \ async_io libaio缺失        conda upgrade -c conda-forge --all
+# x86_64-conda-linux-gnu/bin/ld: cannot find -lcurand: not such file or directory       sudo apt install libaio-dev
+# 新操作后尝试删除torch extension缓存  rm -rf ~/.cache/torch_extensions/
+#  python setup.py egg_info did not run successfully.         pip install --upgrade setuptools
+
+# 如果都不行考虑,  https://www.deepspeed.ai/tutorials/advanced-install/
+# 源码安装
+# git https://github.com/microsoft/DeepSpeed.git & cd DeepSpeed & conda env create -n deepspeed -f environment.yml & conda activate deepspeed & pip install .
+# pip install transformers datasets protobuf accelerate tiktoken sentencepiece peft bitsandbytes
 
 # 调参
 # deepspeed配置简单介绍https://zhuanlan.zhihu.com/p/645627795,https://zhuanlan.zhihu.com/p/675360966 阶段越高并行程度越大

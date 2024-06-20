@@ -41,9 +41,9 @@
 
 
 # ----------------deepspeed_train-------------------------------
-CUDA_VISIBLE_DEVICES=0,1,3,4 deepspeed --num_gpus 4 ./train_sft.py \
+CUDA_VISIBLE_DEVICES=0,1,2,3 deepspeed ./train_sft.py \
     --deepspeed  ./deepspeed_zero2_config.json \
-    --model_name_or_path ../../../model/meta-llama-3-8B-Instruct \
+    --model_name_or_path Qwen/Qwen2-7B-Instruct \
     --use_deepspeed true \
     --weight_decay 1e-3 \
     --warmup_steps 1000 \
@@ -54,7 +54,7 @@ CUDA_VISIBLE_DEVICES=0,1,3,4 deepspeed --num_gpus 4 ./train_sft.py \
     --fp16 true \
     --output_dir ./output/24-6-1/ \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 2  \
+    --per_device_train_batch_size 1  \
     --gradient_accumulation_steps 64 \
     --evaluation_strategy no \
     --save_strategy epoch \
